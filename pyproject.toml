@@ -1,0 +1,24 @@
+[tool.poetry]
+name = "nlp-with-transformers"
+version = "0.1.0"
+description = ""
+authors = ["Robert Kelevra <kelevra.robert@gmail.com>"]
+readme = "README.md"
+
+[tool.poetry.dependencies]
+python = "3.10.10"
+transformers = "^4.41.2"
+datasets = "^2.19.2"
+pandas = "^2.2.2"
+matplotlib = "^3.9.0"
+torch = "^2.3.1"
+umap-learn = "^0.5.6"
+accelerate = "^0.31.0"
+jupyter = "^1.0.0"
+ipykernel = "^6.29.4"
+bertviz = "^1.4.0"
+
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
