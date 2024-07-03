@@ -16,6 +16,7 @@ class TransformerTextConfiguration:
     max_position_embedding = 512  # maximum possible length of a sequence that the model
     num_hidden_layers = 12  # Number of (MHA + FF Layers) Equivalent of number of ConvBlocks in Computer Vision
     num_labels = 2  # Number of Labels
+    batch_size = 64  # Size of the batch used for training
 
 
 configuration_dictionary = TransformerTextConfiguration

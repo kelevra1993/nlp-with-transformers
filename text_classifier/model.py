@@ -169,3 +169,47 @@ class TransformerEncoderLayer(nn.Module):
         output = output + intermidiate_output
 
         return output
+
+
+# Put everything together to create the TransformerEncoder
+class TransformerEncoder(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.embeddings = Embeddings(config)
+        self.layers = nn.ModuleList([TransformerEncoderLayer(config) for _ in range(config.num_hidden_layers)])
+
+    def forward(self, x):
+        """
+        Function that takes the input ids as tokens, runs the initial embedding issued from the token embedding
+        and the positional embedding then passes them through the transformer blocks.
+        :param x: input token ids from a tokenizer
+        :return:
+        """
+        x = self.embeddings(x)
+
+        for layer in self.layers:
+            x = layer(x)
+
+        return x
+
+
+# Create A Classifier, based on the TransformerEncoder
+class TransformerForSequenceClassification(nn.Module):
+    def __init__(self, config):
+        super().__init__()
+        self.transformer_encoder = TransformerEncoder(config)
+        self.dropout = nn.Dropout(config.hidden_dropout_probability)
+        self.classifier = nn.Linear(config.embedding_dimension, config.num_labels)
+
+    def forward(self, x):
+        """
+        Function that passes inputs to the transformer, keeps the first element of the transformer
+        applies dropout on it and then classifies it.
+        :param x: input token ids from a tokenizer
+        :return:
+        """
+        x = self.transformer_encoder(x)[:, 0, :]  # Keep the hidden state of just the first token
+        x = self.dropout(x)
+        x = self.classifier(x)
+
+        return x
