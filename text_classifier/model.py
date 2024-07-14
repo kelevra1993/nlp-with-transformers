@@ -125,12 +125,10 @@ class FeedForward(nn.Module):
         :param hidden_state: input matrix from the Multi Head Attention Layer
         :return:
         """
-        print(f"First Linear Feed Forward Size : {self.first_linear_matrix.weight.size()}")
         hidden_state = self.first_linear_matrix(hidden_state)
         # Introduce non-linearity between matrix multiplications
         hidden_state = self.gelu(hidden_state)
 
-        print(f"Second Linear Feed Forward Size : {self.second_linear_matrix.weight.size()}")
         hidden_state = self.second_linear_matrix(hidden_state)
         hidden_state = self.dropout(hidden_state)
 
