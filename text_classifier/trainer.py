@@ -159,6 +159,7 @@ class Trainer:
 
             # Go through training iterations
             for index, batch in enumerate(self.training_dataset):
+
                 # Get Input Ids and Labels
                 training_input_ids = torch.Tensor(batch["input_ids"])
                 training_labels = torch.Tensor(batch["label"])
@@ -170,9 +171,7 @@ class Trainer:
                 training_input_ids = training_input_ids.int()
                 training_labels = training_labels.to(self.device)  # Not necessarily needed for this line
                 training_merged_labels = training_merged_labels.to(self.device)
-                # print(training_input_ids.device)
-                # print(training_input_ids.shape)
-                # exit()
+
                 # Re-Initialize Optimizer
                 self.optimizer.zero_grad()
 
@@ -181,10 +180,7 @@ class Trainer:
 
                 # Needs to be verified thouroughly
                 loss = self.loss(outputs, training_merged_labels)
-                print(outputs)
-                print(outputs.shape)
-                print(loss)
-                exit()
+
                 # Run the backpropagation and optimizer
                 loss.backward()
                 self.optimizer.step()
@@ -199,11 +195,13 @@ class Trainer:
                 running_loss += loss.item()
 
                 # Todo Will be changed afterwards, to be moved to another function
-                info_dump = 100
-                if index + 1 % info_dump - 1 == 0:
+                info_dump = 200
+                if (index + 1) % info_dump == 0:
+                    print(100 * '-')
+                    print(f"We Are At Iteration {index + 1} Of Epoch {epoch}")
                     print(f"The Average Loss Over The Last {info_dump} Iterations Is {running_loss / info_dump:.4f}")
+                    print(100 * '-')
                     running_loss = 0
-                exit()
 
     @staticmethod
     def get_loss(self):
@@ -218,7 +216,7 @@ class Trainer:
 
     @staticmethod
     def get_optimizer(self):
-        return optimizer.Adam(self.model.parameters(), lr=0.001)
+        return optimizer.Adam(self.model.parameters(), lr=0.0001)
 
 
 trainer = Trainer(configuration_dictionary=configuration_dictionary)

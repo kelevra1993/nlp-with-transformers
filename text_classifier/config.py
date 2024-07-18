@@ -17,7 +17,7 @@ class TransformerTextConfiguration:
     num_hidden_layers = 6  # Number of (MHA + FF Layers) Equivalent of number of ConvBlocks in Computer Vision
     num_labels = 2  # Number of Labels
     batch_size = 64  # Size of the batch used for training
-    number_epochs = 10
+    number_epochs = 10000
     device = "mps"
 
 
