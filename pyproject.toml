@@ -18,6 +18,7 @@ jupyter = "^1.0.0"
 ipykernel = "^6.29.4"
 bertviz = "^1.4.0"
 torchsummary = "^1.5.1"
+seaborn = "^0.13.2"
 
 
 [build-system]

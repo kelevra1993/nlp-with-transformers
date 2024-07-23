@@ -1,0 +1,12 @@
+version: '3.5'
+services:
+  servier:
+    image: nlp_with_transformers
+    container_name: transformers_container
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config:/home/app/config
+      - ./data:/home/app/data
+      - ./trained_models:/home/app/trained_models
+    command: /bin/sh

@@ -1,0 +1,143 @@
+# Sequence (text) Classification ex: sentiment analysis, language detection.
+# This file describes the configuration for the project (data, hyperparameters, etc.)
+# Some of the values have been set to usable defaults, while others will need to be changed
+
+##############################################################################################
+#                                          Folders                                           #
+##############################################################################################
+folder_structure:
+    # Name of the folder where Model Training and Validation Information is stored.
+    project_folder: "experiment_folder"
+
+    # TODO Check what is happening with the absolute path and none absolute path
+    # TODO make this more clear going on so that there is no confusion on what should be filled.
+    # Path of the csv files where data is stored
+    # Important Use Absolute path
+    data_files:
+        train: "path/to/training.csv"
+        validation: "path/to/validation.csv"
+        test: "path/to/test.csv"
+
+##############################################################################################
+#                                            Data                                            #
+##############################################################################################
+data:
+    # Labels For Project Ordered By Classification Index
+    label_dictionary:
+        { 0: "negative", 1: "positive" }
+
+    # TODO Will Need To Be Evaluated
+    field_delimiter: "," # field delimiter for csv file
+
+
+##############################################################################################
+#                                            Model                                           #
+##############################################################################################
+model:
+    # TODO To Be Coded
+    # Choice of the positonal encoder to use
+    positional_encoder:
+        type: "cosine_and_sine"
+
+        parameters:
+            classic:
+                max_position_embedding: 512
+            # TODO To Be Implemented
+            blstm:
+                number_of_hidden_units: 50
+                number_of_layers: 2
+
+    vocabulary_size: 30522
+    # Transformer Architecture Parameters
+    transformer:
+        # Number of (Multi-Head-Attention + Feed Forward Layers) Equivalent of number of ConvBlocks in Computer Vision
+        num_hidden_layers: 6
+        # Size of the embedding (Will Be Kept Constant Throughout For The First Iterations Of The Library)
+        embedding_dimension: 768
+        # Embedding Dimension Size Of A Single Head (defines the stratification of embedding dimension)
+        # For instance the Number Of Heads is equal to embedding_dimension//head_dimension
+        head_dimension: 64
+        # TODO To double check that it is indeed the
+        # Reasoning Factor : How much to we want to upscale or downscale the embedding dimension using
+        # the Feed Forward Layer. Applied After Concatenation of Head Attentions.
+        # (Ultimately We Will Still End Up With The Defined Embedding Dimension)
+        reasoning_factor: 0.5
+
+        # TODO Evaluate the relevance of this and later see if we have to keep it or just impose it without choice
+        # Dropout Probability : Fraction of nodes / neurones to drop during training.
+        hidden_dropout_probability: 0.1
+
+    # Choice To Use Aggregators such as BLSTM, Max, Mean, Squeeze-And-Excite
+    use_aggregator:
+        activated: False
+        type: "blstm" # must be a value in ["blstm","max","mean","squeeze-and-excite"]
+        parameters:
+            # Bi-LSTM Parameters
+            blstm:
+                number_of_hidden_units: 100
+                number_of_layers: 2
+
+            # Squeeze And Excite Parameters
+            squeeze-and-excite:
+                number_of_matrices: 3
+
+    # TODO To Be Evaluated If We Would Like To Add This In The Future
+    fully_connected_sizes: [256,128,64,32] # Number of neurons in fully connected matrices
+
+    # TODO To Be Implemented
+    # Choice to scale results that are fed to the softmax function for inference
+    # By default the value is 1.0 (None, or the yaml equivalent, null)
+    # Used To spread out prediction probabilities, if not sure of what it does, refrain from using it
+    scaler: null
+
+##############################################################################################
+#                                          Training                                          #
+##############################################################################################
+training:
+    device: "mps"
+
+    settings:
+        # TODO Test out Gradient Accumulation in order to avoid padding for batches
+        # Size Of The Batch
+        batch_size: 64
+        # Number of iterations before output to Terminal
+        info_dump: 10
+        # Todo To be confirmed for the speed improvement : Also has to be implemented
+        # Choice to keep batch-size validation iterations at every time step
+        # If you deactivate this step, training will be 2x faster ( but no validation inference at every step )
+        keep_validation_iterations: True
+        # Number of iterations after which we save a model and run inference on the whole validation dataset
+        weight_saver: 5000
+        # Number of iterations that will be ran
+        num_iterations: 100000
+
+    hyperparameters:
+        # Learning rate. Can either be a float (0.001) or a string with the format xe-y
+        learning_rate: 2e-4
+
+    # TODO To Be Implemented
+    alternative_modes:
+        # Choice to compute final model size
+        compute_model_size: True
+        # Choice to view what is being fed to the neural network
+        view_input_images: True
+
+
+    # TODO Make Sure That This Is Coded
+    visualisation:
+        tensorboard: True
+
+# TODO To Be Implemented
+##############################################################################################
+#                                          Inference                                         #
+##############################################################################################
+inference:
+    # TODO To Be Implemented
+    # Index of the model iteration that will be used for inference,
+    # by default if it is set to None evaluation will be done on all models
+    index_iteration: 5000
+
+    # TODO To Be Implemented
+    # Save misclassified sequences in error folder for model at index_iteration
+    error_dump: False
+
