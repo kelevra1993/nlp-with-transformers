@@ -37,7 +37,7 @@ class Embeddings(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.token_embeddings = nn.Embedding(config.vocabulary_size, config.embedding_dimension)
-        self.positional_embeddings = nn.Embedding(config.max_position_embedding, config.embedding_dimension)
+        self.positional_embeddings = nn.Embedding(config.max_tokens, config.embedding_dimension)
         self.layer_normalization = nn.LayerNorm(config.embedding_dimension, eps=1e-12)
         self.dropout = nn.Dropout()
 
@@ -197,7 +197,22 @@ class TransformerForSequenceClassification(nn.Module):
         super().__init__()
         self.transformer_encoder = TransformerEncoder(config)
         self.dropout = nn.Dropout(config.hidden_dropout_probability)
-        self.classifier = nn.Linear(config.embedding_dimension, config.num_labels)
+
+        self.fully_connected_block = None
+        input_size = config.embedding_dimension
+
+        # Add Fully Connected Layers if defined
+        if config.fully_connected_sizes:
+            self.fully_connected_layers = []
+
+            for size in config.fully_connected_sizes:
+                self.fully_connected_layers.append(nn.Linear(input_size, size))
+                self.fully_connected_layers.append(nn.GELU())
+                input_size = size
+
+            self.fully_connected_block = nn.Sequential(*self.fully_connected_layers)
+
+        self.classifier = nn.Linear(input_size, config.num_labels)
 
     def forward(self, x):
         """
@@ -208,6 +223,10 @@ class TransformerForSequenceClassification(nn.Module):
         """
         x = self.transformer_encoder(x)[:, 0, :]  # Keep the hidden state of just the first token
         x = self.dropout(x)
+
+        if self.fully_connected_block:
+            x = self.fully_connected_block(x)
+
         x = self.classifier(x)
 
         return x
