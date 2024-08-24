@@ -229,4 +229,4 @@ class TransformerForSequenceClassification(nn.Module):
 
         x = self.classifier(x)
 
-        return x
+        return x, F.softmax(x, dim=-1)

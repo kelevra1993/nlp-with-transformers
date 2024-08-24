@@ -2,13 +2,23 @@
 File that contains code for the Trainer Class
 """
 import os
+import sys
 import torch
+import time
+import ast
+import numpy as np
+import pandas as pd
 from tqdm import tqdm
 import torch.optim as optimizer
 from torch.utils.data import DataLoader
 
-# Code that is used to load emotions datasets but will be completed deleted once we have downloaded it.
-from datasets import load_dataset
+# Add path to environment variables when launching script
+from os.path import basename, dirname
+
+sys.path.append(dirname(dirname(__file__)))
+
+# Code that is used to load emotions datasets but will be completely deleted once we have downloaded it.
+from datasets import load_dataset, Dataset
 
 # We have not created our own tokenizer therefore we will import one for simplification purposes.
 # The goal being to start out with a simple text classification task and then build up from there.
@@ -17,8 +27,9 @@ from transformers import AutoTokenizer
 # Here we get the sequence classifier model that was coded in the model.py file
 from models.model import TransformerForSequenceClassification
 
-from utils import (make_dir, print_green, safe_dump, print_yellow, print_red,
-                   print_blue, print_bold, plot_and_save_confusion_matrix)
+from utils import (make_dir, print_green, safe_dump, print_yellow, print_red, print_dictionary, get_trackers,
+                   create_progress_bar, print_blue, print_bold, plot_and_save_confusion_matrix, compute_accuracy,
+                   console_log_update_tracker)
 
 
 class SequenceClassifierTrainer:
@@ -36,7 +47,8 @@ class SequenceClassifierTrainer:
 
         # Always initialise project paths containing model weights and results
         (self.raw_parameters, self.model_path, self.result_path, self.weight_path,
-         self.param_file, self.template_path, self.tensorboard_path) = self.initialize_project_paths()
+         self.param_file, self.template_path, self.tensorboard_path,
+         self.result_evaluation_file) = self.initialize_project_paths()
 
         # Get the tokenizer
         self.tokenizer = self.get_tokenizer(self)
@@ -56,12 +68,16 @@ class SequenceClassifierTrainer:
         # Setup the optimizer
         self.optimizer = self.get_optimizer(self)
 
-        # Get Tokenized Datasets
-        (self.training_dataset,
-         self.validation_dataset,
-         self.test_dataset,
-         self.test_iterations,
-         self.label_dictionary) = self.get_train_validation_test_sets(self)
+        # Inform the user of the model size
+        self.print_model_size()
+
+        # Get Tokenized Iterators
+        (self.training_dataset, self.validation_dataset, self.test_dataset,
+         self.training_iterator, self.validation_iterator, self.test_iterator,
+         self.test_iterations, self.label_dictionary) = self.get_train_validation_test_sets(self)
+
+        # get trackers
+        self.tracker_dictionary = get_trackers()
 
     def initialize_project_paths(self):
         """
@@ -111,12 +127,15 @@ class SequenceClassifierTrainer:
         template_path = os.path.join("servier", "data_manager", "Template.xlsx")
         tensorboard_path = os.path.join(self.project_configuration.PROJECT_FOLDER, "Tensorboard")
 
-        return raw_parameters, model_path, result_path, weight_path, param_file, template_path, tensorboard_path
+        # Results of validation on saved Models
+        result_evaluation_file = os.path.join(model_path, "Results.txt")
+
+        return raw_parameters, model_path, result_path, weight_path, param_file, template_path, tensorboard_path, result_evaluation_file
 
     def prepare_project_folder(self):
         """
         Function that create project folders in oder to launch training
-        :return: result_evaluation_file (str) path to file containing training results
+        :return:
         """
 
         make_dir(self.weight_path)
@@ -130,29 +149,50 @@ class SequenceClassifierTrainer:
         else:
             print_yellow("params.json already exists and does not need to be updated !!!\n")
 
-        # Results of validation on saved Models
-        result_evaluation_file = os.path.join(self.model_path, "Results.txt")
-
-        return result_evaluation_file
-
     @staticmethod
     def get_train_validation_test_sets(self):
         """
-        Function that is used to get the emotion dataset. It is already properly formatted so we can just get
-        the training set, validation set and test set from the dictionary
+        Function that is used to get the emotion dataset. If the datasets has not already been stored locally we download it,
+        and then we save in order to load it faster afterwards.
         :return:
         """
-        # Load the emotions dataset
-        emotions = load_dataset("emotion")
 
-        # Tokenize the dataset.
-        tokenized_emotions = emotions.map(self.tokenize_and_merge_classes, batched=True,
-                                          batch_size=self.project_configuration.batch_size)
+        if not (os.path.exists(self.project_configuration.train_csv_file) and os.path.exists(
+                self.project_configuration.valid_csv_file) and os.path.exists(
+            self.project_configuration.test_csv_file)):
 
-        # Load all of the datasets
-        training_dataset, validation_dataset, test_dataset = (tokenized_emotions["train"],
-                                                              tokenized_emotions["validation"],
-                                                              tokenized_emotions["test"])
+            # Load the emotions dataset and then later save it
+            emotions = load_dataset("emotion")
+
+            # Tokenize the dataset.
+            tokenized_emotions = emotions.map(self.tokenize_and_merge_classes, batched=True,
+                                              batch_size=self.project_configuration.batch_size)
+
+            # Load all of the datasets
+            training_dataset, validation_dataset, test_dataset = (tokenized_emotions["train"],
+                                                                  tokenized_emotions["validation"],
+                                                                  tokenized_emotions["test"])
+
+            training_dataframe = pd.DataFrame(training_dataset)
+            validation_dataframe = pd.DataFrame(validation_dataset)
+            test_dataframe = pd.DataFrame(test_dataset)
+            training_dataframe.to_csv(self.project_configuration.train_csv_file, index=False)
+            validation_dataframe.to_csv(self.project_configuration.valid_csv_file, index=False)
+            test_dataframe.to_csv(self.project_configuration.test_csv_file, index=False)
+
+        else:
+            training_dataframe = pd.read_csv(self.project_configuration.train_csv_file)
+            validation_dataframe = pd.read_csv(self.project_configuration.valid_csv_file)
+            test_dataframe = pd.read_csv(self.project_configuration.test_csv_file)
+
+            training_dataframe["input_ids"] = training_dataframe["input_ids"].apply(ast.literal_eval)
+            validation_dataframe["input_ids"] = validation_dataframe["input_ids"].apply(ast.literal_eval)
+            test_dataframe["input_ids"] = test_dataframe["input_ids"].apply(ast.literal_eval)
+
+            training_dataset, validation_dataset, test_dataset = (Dataset.from_pandas(training_dataframe),
+                                                                  Dataset.from_pandas(validation_dataframe),
+                                                                  Dataset.from_pandas(test_dataframe))
+
         # Todo the shuffling part might need re-adjustment
         training_dataset = DataLoader(training_dataset, batch_size=self.project_configuration.batch_size,
                                       shuffle=False,
@@ -160,17 +200,24 @@ class SequenceClassifierTrainer:
         validation_dataset = DataLoader(validation_dataset, batch_size=self.project_configuration.batch_size,
                                         shuffle=False,
                                         collate_fn=self.collate_function)
-
         test_dataset = DataLoader(test_dataset,
                                   shuffle=False,
+                                  batch_size=1,
                                   collate_fn=self.collate_function)
+
         test_iterations = test_dataset.__len__()
 
-        # Set up the label dicitonary
-        label_dictionary = {str(index): label for index, label in
-                            enumerate(['sadness', 'joy', 'love', 'anger', 'fear', 'surprise'])}
+        training_iterator = iter(training_dataset)
+        validation_iterator = iter(validation_dataset)
+        test_iterator = iter(test_dataset)
 
-        return training_dataset, validation_dataset, test_dataset, test_iterations, label_dictionary
+        # Set up the label dictionary
+        label_dictionary = self.project_configuration.label_dictionary
+
+        # label_dictionary = {str(index): label for index, label in
+        #                     enumerate(['sadness', 'joy', 'love', 'anger', 'fear', 'surprise'])}
+
+        return training_dataset, validation_dataset, test_dataset, training_iterator, validation_iterator, test_iterator, test_iterations, label_dictionary
 
     @staticmethod
     def device_message_success(device):
@@ -179,10 +226,7 @@ class SequenceClassifierTrainer:
         :param device: (str) device specified by the user
         :return:
         """
-        message = f"{device} device has been detected and will be used for Training and Inference"
-        print_green(len(message) * '-')
-        print_green(message)
-        print_green(len(message) * '-')
+        print_green(f"{device} device detected and will be used for Training and Inference", add_separators=True)
 
     @staticmethod
     def get_device(self):
@@ -270,7 +314,7 @@ class SequenceClassifierTrainer:
         """
 
         # Create project folders
-        result_evaluation_file = self.prepare_project_folder()
+        self.prepare_project_folder()
 
         # TODO MUST DO : SETUP TENSORBOARD !!!
         # Code for tensorboard
@@ -278,65 +322,275 @@ class SequenceClassifierTrainer:
         # Printing Model Summary
         self.model_and_iterations_summary()
 
-        # Computation of the running loss
-        running_loss = 0.0
+        # Restore last model variables
+        starting_iteration = self.restore_last_model() + 1
 
-        while True:
-            # Todo to be coded to integrate starting from a saved model.
-            index = 0
-            if index > self.project_configuration.num_iterations:
-                break
-            # Go through training iterations
-            for batch in self.training_dataset:
+        progress_bar = None
 
-                # testing out the dataloader to see the limitations
-                if index > self.project_configuration.num_iterations:
-                    break
+        for iteration in range(starting_iteration, self.project_configuration.num_iterations):
 
-                # Get Input Ids and Labels
-                training_input_ids = torch.Tensor(batch["input_ids"])
-                training_labels = torch.Tensor(batch["label"])
-                training_merged_labels = torch.Tensor(batch["merged_label"])
-
-                # Do we need to transform it into a numpy array ?
-                # Add them to the device
-                training_input_ids = training_input_ids.to(self.device)
-                training_input_ids = training_input_ids.int()
-                training_labels = training_labels.to(self.device)  # Not necessarily needed for this line
-                training_merged_labels = training_merged_labels.to(self.device)
-
+            try:
+                # Todo Investigate if this does not ultimately just sets the optimizer to zero.
+                #  In this case, me might not have to store the optimiser in the model during training because it takes alot
+                #  of space, we should also evaluate if keeping optimiser in the weights does indeed help convergence.
                 # Re-Initialize Optimizer
                 self.optimizer.zero_grad()
 
-                # Run the inputs through the neural network
-                outputs = self.model(training_input_ids)
-
-                # Needs to be verified thouroughly
-                loss = self.loss(outputs, training_merged_labels)
-
-                # Run the backpropagation and optimizer
-                loss.backward()
-                self.optimizer.step()
+                self.training_iterator, training_loss, _, _, _, _ = self.run_model_and_update_trackers(
+                    set_type="training",
+                    iterator=self.training_iterator,
+                    dataset=self.training_dataset)
 
                 # TODO Retest to see if the model does backpropagation correctly
                 #  normally the loss should be lower and depending on the learning rate
                 #  we should properly predict the output class for previous input elements
+                # Run the backpropagation and optimizer
+                training_loss.backward()
+                self.optimizer.step()
 
-                # WRITE CODE HERE
+                # Validation process done after optimizer step()
+                if self.project_configuration.keep_validation_iterations:
+                    with torch.no_grad():
+                        self.validation_iterator, _, _, _, _, _ = self.run_model_and_update_trackers(
+                            set_type="validation",
+                            iterator=self.validation_iterator,
+                            dataset=self.validation_dataset)
 
-                # Add to the running loss
-                running_loss += loss.item()
+                if iteration % self.project_configuration.info_dump == 0:
+                    # Dump information to console log
+                    self.tracker_dictionary = console_log_update_tracker(
+                        iterations=iteration,
+                        tracker_dictionary=self.tracker_dictionary,
+                        info_dump=self.project_configuration.info_dump,
+                        keep_validation_iterations=self.project_configuration.keep_validation_iterations)
 
-                # update index
-                index += 1
-                # Todo Will be changed afterwards, to be moved to another function
-                if (index + 1) % self.project_configuration.info_dump == 0:
-                    print(100 * '-')
-                    print(f"We Are At Iteration {index + 1} Of Training")
-                    print(
-                        f"The Average Loss Over The Last {self.project_configuration.info_dump} Iterations Is {running_loss / self.project_configuration.info_dump:.4f}")
-                    print(100 * '-')
-                    running_loss = 0
+                # Launching the evaluation on the test set and also saving the model
+                if iteration % self.project_configuration.weight_saver == 0:
+                    if progress_bar:
+                        progress_bar.update(1)
+                        progress_bar.close()
+                        progress_bar = None
+                        time.sleep(1)
+                    # TODO TO BE CODED
+                    self.launch_evaluation_on_single_model(
+                        iteration=iteration,
+                        inference_during_training=True)
+
+                    self.save_model(iteration=iteration)
+
+                # Initialise the progress bar
+                if iteration == starting_iteration or iteration % self.project_configuration.info_dump == 0 or iteration % self.project_configuration.weight_saver == 0:
+                    if progress_bar:
+                        progress_bar.update(1)
+                        progress_bar.close()
+
+                    gap = min(self.project_configuration.info_dump - iteration % self.project_configuration.info_dump,
+                              self.project_configuration.weight_saver - iteration % self.project_configuration.weight_saver)
+                    progress_bar = create_progress_bar(total=gap,
+                                                       description=f"Training Iteration {iteration} to {iteration + gap}")
+
+                else:
+                    progress_bar.update(1)
+            except KeyboardInterrupt:
+                if progress_bar:
+                    progress_bar.close()
+                    time.sleep(1)
+
+                self.save_model(iteration=iteration)
+
+                exit()
+
+    def run_model_and_update_trackers(self, set_type, iterator, dataset):
+        """
+        Function that is used to run the model and update trackers for a defined iterator.
+        :param set_type: (str) indicate whether we are dealing with training or validation.
+        :param iterator: (iterator) iterator that we would like to go through.
+        :param dataset: (dataset) dataset that is used.
+        :return:
+        """
+        iterator, sequence, input_ids, labels = self.get_iterator_batch(
+            iterator=iterator,
+            dataset=dataset,
+            ignore_stop=False if set_type == "test" else True)
+
+        # todo just make sure that the softmax does not slow down training
+        # Run the inputs through the neural network
+        logits, softmax = self.model(input_ids)
+
+        # TODO TO BE TESTED
+        # TODO TO BE TESTED WHEN RUNNING VALIDATION, MAKE SURE THAT NO GRADIENTS ARE BEING COMPUTED.
+        # Needs to be verified thouroughly
+        loss = self.loss(logits, labels)
+
+        # Update loss and accuracy trackers (only for training and validation cases)
+        self.tracker_dictionary[f"{set_type}_moving_loss"] += loss
+        self.tracker_dictionary[f"{set_type}_moving_accuracy"] += compute_accuracy(
+            predictions=logits.detach().cpu().numpy(), labels=labels)
+
+        return iterator, loss, sequence, input_ids, labels, softmax
+
+    # todo add documentation
+    def launch_evaluation_on_single_model(self, iteration, inference_during_training=False):
+        """"""
+
+        start_test_timer = time.time()
+
+        counter_dictionary, data_dictionary, confusion_matrix = self.initialize_counters(
+            label_dictionary=self.project_configuration.label_dictionary,
+            num_classes=self.project_configuration.num_labels)
+
+        # Reset Test trackers
+        for key in list(self.tracker_dictionary.keys()):
+            if "test" in key:
+                self.tracker_dictionary[key] = 0.0
+
+        for _ in tqdm(range(self.test_iterations), desc="Model Evaluation"):
+            with torch.no_grad():
+                # Keep going until we reach the end of the test dataset.
+                self.test_iterator, _, test_sequence_text, test_input_ids, test_labels, test_softmax = self.run_model_and_update_trackers(
+                    set_type="test",
+                    iterator=self.test_iterator,
+                    dataset=self.test_dataset)
+
+                counter_dictionary, confusion_matrix, data_dictionary = self.update_test_counters(
+                    counter_dictionary=counter_dictionary,
+                    confusion_matrix=confusion_matrix,
+                    data_dictionary=data_dictionary,
+                    sequence_text=test_sequence_text,
+                    sequence_label=test_labels,
+                    softmax=test_softmax)
+
+        # Re initialize the test iterator
+        self.test_iterator = iter(self.test_dataset)
+
+        # Get test accuracy
+        test_accuracy = 100 * (self.tracker_dictionary["test_moving_accuracy"] / self.test_iterations)
+
+        # Get list of messages that will be displayed to the user containing recalls per class
+        # as well as averaged recall.
+        message_list = self.get_accuracy_and_recall_messages(
+            iteration=iteration,
+            test_accuracy=test_accuracy,
+            counter_dictionary=counter_dictionary)
+
+        # Only write to result file during training
+        if inference_during_training:
+            target = open(self.result_evaluation_file, "a")
+            for message in message_list:
+                target.write(message + '\n')
+            target.close()
+
+        for message in message_list:
+            print_blue(message) if "Recall" in message else print_bold(message)
+
+        print(f"The Test Process Took {int((time.time() - start_test_timer))} seconds\n")
+
+    # TODO Make sure that we do indeed get to the end of our dataset and we do go through all of the inputs
+    def get_iterator_batch(self, iterator, dataset, ignore_stop=True):
+        """
+        Function that is used to get the batch of interest, either for the Training, Validation and Test Set.
+        :param iterator: (iterator) iterator that we would like to go through
+        :param dataset: (dataset) dataset that is used to initialize the iterator. This is done when we reach the end of our dataset
+        :param ignore_stop: (bool) boolean that is used to indicate whether or not to keep iterating on the dataset.
+        This is useful when we want to loop over the dataset over and over for training and validation, but not necesarily
+        for the test set where we would like to only have on pass in order to store the results for a given model iteration.
+        :return:
+        """
+        try:
+            batch = next(iterator)
+        except StopIteration:
+
+            iterator = iter(dataset)
+            if ignore_stop:
+                batch = next(iterator)
+            else:
+                return iterator, None, None, None
+
+        # Get Input Ids and Labels
+        # Do we need to transform it into a numpy array ?
+        sequence = batch["text"]
+        input_ids = torch.Tensor(batch["input_ids"]).to(self.device).int()
+        labels = torch.Tensor(batch["merged_label"]).to(self.device)
+
+        return iterator, sequence, input_ids, labels
+
+    @staticmethod
+    def initialize_counters(label_dictionary, num_classes):
+        """
+        # Setting dictionaries that keep track of classification prediction for metric computations and displays
+        :param label_dictionary: dictionary containing the names of the desired classes
+        :param num_classes: number of classes that are being predicted
+        :return:
+        """
+        counter_dictionary = {}
+
+        data_dictionary = {}
+        confusion_matrix = np.zeros((num_classes, num_classes), dtype=np.int32)
+
+        for i in range(len(label_dictionary)):
+            counter_dictionary[label_dictionary[i]] = {'total': 0, 'correct': 0}
+            data_dictionary[label_dictionary[i]] = []
+
+        return counter_dictionary, data_dictionary, confusion_matrix
+
+    def update_test_counters(self, counter_dictionary, confusion_matrix,
+                             data_dictionary, sequence_text, sequence_label, softmax):
+        """
+        Function that is used to update test counter dictionaries in order to later display and store them after model
+        at a given iteration has been stored.
+        :param counter_dictionary: (dict) dictionary containing counts of elements per class
+        :param confusion_matrix: (dict) dictionary containing data that is used to create the confusion matrix
+        :param data_dictionary: (dict) dictionary containing detailed predictions
+        :param sequence_text: (str) sequence name string
+        :param sequence_label: [float,float] labels
+        :param softmax: [float,float] softmax applied on predictions
+        :return:
+        """
+
+        # Fine grained evaluation
+        # Dealing with a given label
+        # Todo will definely have to be checked, since we have not yet checked that there is only one element.
+        label_index = int(sequence_label.detach().cpu().numpy()[0])
+        predicted_index = np.argmax(softmax.detach().cpu().numpy()[0], 0)
+        counter_dictionary[self.label_dictionary[label_index]]["total"] += 1
+
+        # Add element to confusion matrix
+        confusion_matrix[predicted_index][label_index] += 1
+
+        # A Correct prediction
+        if predicted_index == label_index:
+            data_dictionary[self.label_dictionary[label_index]].append(
+                (sequence_text, "Right", softmax[0][predicted_index]))
+            counter_dictionary[self.label_dictionary[label_index]]["correct"] += 1
+
+        # A False prediction
+        else:
+            data_dictionary[self.label_dictionary[predicted_index]].append(
+                (sequence_text, "False", softmax[0][predicted_index]))
+
+        return counter_dictionary, confusion_matrix, data_dictionary
+
+    @staticmethod
+    def get_accuracy_and_recall_messages(iteration, test_accuracy, counter_dictionary):
+        """
+        Function that gets the message containing recall and accuracy information for the test set. The goal is to
+        properly highlight it ot the user.
+        :param iteration: (int) iteration of the model that we are currently looking at
+        :param test_accuracy: (float) accuracy evaluated on the whole test dataset
+        :param counter_dictionary:(dict) dictionary containing number of samples per P1 property
+        :return:
+        """
+        message_list = ["\n" + 50 * "-", f"Model Iteration {iteration} Global Accuracy : {np.round(test_accuracy, 2)}%"]
+        class_recalls = []
+
+        for key, counter in counter_dictionary.items():
+            class_recall = counter['correct'] / counter['total']
+            message_list.append(f"Recall On {key.capitalize()} Class Is : {np.round(100 * class_recall, 2)}%")
+            class_recalls.append(100 * class_recall)
+        message_list.append(f"Average Recall On All Classes Is {np.round(np.mean(class_recalls), 2)}%")
+        message_list.append(50 * "-")
+
+        return message_list
 
     @staticmethod
     def get_loss(self):
@@ -358,6 +612,33 @@ class SequenceClassifierTrainer:
         """
         return optimizer.Adam(self.model.parameters(), lr=self.project_configuration.learning_rate)
 
+    def print_model_size(self):
+        """
+        Prints the estimated size of the model and optionally stops training if specified.
+        """
+        # Calculate model parameter size
+        param_size = 0
+        for param in self.model.parameters():
+            param_size += param.nelement() * param.element_size()
+
+        # Calculate model buffer size
+        buffer_size = 0
+        for buffer in self.model.buffers():
+            buffer_size += buffer.nelement() * buffer.element_size()
+
+        # Total model size in megabytes
+        size_all_mb = (param_size + buffer_size) / 1024 ** 2
+
+        # Print model size
+        message = f"Estimated Model Size Without Optimizer : {size_all_mb:.2f} MB"
+        print_yellow(message, add_separators=True)
+
+        # Stop training message
+        if self.project_configuration.compute_model_size:
+            print_red("To Continue Training or Inference: Please Set compute_model_size To False",
+                      add_separators=True)
+            exit()
+
     def model_and_iterations_summary(self, training=True):
         """
         Function that print out triaining summary
@@ -372,8 +653,107 @@ class SequenceClassifierTrainer:
             print(f"Number Of Training Iterations : {self.project_configuration.num_iterations}")
         print(f"Number Of Validation/Test Iterations : {self.test_iterations} \n")
 
+    def extract_last_model_iteration(self):
+        """
+        Function that is used to get the last model that was saved for a given run. Useful when we are resuming
+        training.
+        :return:
+        """
+        last_iteration = 0
 
-# TODO Will later be removed
+        full_checkpoint_logger = os.path.join(self.weight_path, "full-checkpoint")
+
+        if not os.path.exists(full_checkpoint_logger):
+            return last_iteration
+
+        with open(full_checkpoint_logger, 'r') as file:
+            first_line = file.readline().strip()
+
+        last_iteration_string = first_line.split('"')[1]
+        last_iteration = int(last_iteration_string.split("_")[-1])
+
+        return last_iteration
+
+    def restore_last_model(self, index_iteration=None):
+        """
+        Function that is used to restore the last model that was saved, if we are resuming training.
+        If we are dealing with inference for validation or test set, to restore the model at index_iteration for evaluation.
+        :param index_iteration: (int) iteration of interest for the model that we would like to restore
+        :return:
+        """
+
+        if not index_iteration:
+            index_iteration = self.extract_last_model_iteration()
+
+        # Despite trying to get the last model None was found
+        if not index_iteration:
+            print_green(
+                "No Initiation Model Weights Will Be Used...\nWe generate A New Model That Will Be Trained From Scratch.",
+                add_separators=True)
+        else:
+
+            self.load_model(iteration=index_iteration)
+            print_green(f"We Loaded A Model That Was Previously Saved At Iteration {index_iteration}",
+                        add_separators=True)
+        return index_iteration
+
+    def load_model(self, iteration):
+        """
+        Function that is used to restore a model that was previously saved, either in order to continue
+        training or to run inference.
+        :param iteration: (int) iteration at which the model is being saved.
+        :return:
+        """
+
+        model_path = os.path.join(self.weight_path, f"Iteration_{iteration}.pth")
+
+        loaded_checkpoint = torch.load(model_path)
+
+        self.model.load_state_dict(loaded_checkpoint["model_state"])
+        self.optimizer.load_state_dict(loaded_checkpoint["optim_state"])
+
+    def save_model(self, iteration):
+        """
+        # Function that is used to save the model
+        :param iteration: (int) iteration at which the model is being saved.
+        :return:
+        """
+        print_yellow(f"Model is being saved at iteration {iteration}.....")
+        checkpoint = {
+            "model_state": self.model.state_dict(),
+            "optim_state": self.optimizer.state_dict()
+        }
+        model_path = os.path.join(self.weight_path, f"Iteration_{iteration}.pth")
+        torch.save(checkpoint, model_path)
+        self.dump_in_checkpoint(iteration)
+        print_green("Model has been saved successfully\n\n")
+
+    def dump_in_checkpoint(self, iteration):
+        """
+        Function that is used to dump information about the saved checkpoint in a file for later retrieval.
+        :param iteration: (int) iteration at which the model is being saved.
+        :return:
+        """
+        checkpoint_file = os.path.join(self.weight_path, "full-checkpoint")
+
+        # Saved the iteration in a checkpoint file
+        try:
+            with open(checkpoint_file, "r") as f:
+                d = f.readlines()
+        except FileNotFoundError:
+            d = []
+
+        with open(checkpoint_file, "w") as f:
+            if len(d) == 0:
+                d.append(f'model_checkpoint_path: "Iteration_{iteration}"\n')
+                d.append(f'all_model_checkpoint_paths: "Iteration_{iteration}"\n')
+            else:
+                d[0] = f'model_checkpoint_path: "Iteration_{iteration}"\n'
+                d.append(f'all_model_checkpoint_paths: "Iteration_{iteration}"\n')
+            for line in d:
+                f.write(line)
+
+
 from utils import load_configuration_variables, print_red, print_yellow
 
 # Load configuration object

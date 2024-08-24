@@ -2,7 +2,7 @@ import os
 import json
 import yaml
 import argparse
-
+import time
 import matplotlib
 
 matplotlib.use("Agg")
@@ -62,7 +62,7 @@ def get_configuration_object(application_folder, config):
         "num_iterations": config["training"]["settings"]["num_iterations"],
         "learning_rate": float(config["training"]["hyperparameters"]["learning_rate"]),
         "compute_model_size": config["training"]["alternative_modes"]["compute_model_size"],
-        "view_input_images": config["training"]["alternative_modes"]["view_input_images"],
+        "view_input_sequences": config["training"]["alternative_modes"]["view_input_sequences"],
         "tensorboard": config["training"]["visualisation"]["tensorboard"],
         "index_iteration": config["inference"]["index_iteration"],
         "error_dump": config["inference"]["error_dump"]
@@ -120,44 +120,162 @@ def make_dir(path):
         os.makedirs(path)
 
 
-def print_blue(output):
+def print_blue(output, add_separators=False):
     """
-    :param output: string that we wish to print in a certain colour
+    Prints the output string in blue color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[94m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[94m" + "\033[1m" + output + "\033[0m")
+        print("\033[94m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[94m" + "\033[1m" + output + "\033[0m")
+
+
+def print_green(output, add_separators=False):
+    """
+    Prints the output string in green color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[32m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[32m" + "\033[1m" + output + "\033[0m")
+        print("\033[32m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[32m" + "\033[1m" + output + "\033[0m")
+
+
+def print_yellow(output, add_separators=False):
+    """
+    Prints the output string in yellow color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[93m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[93m" + "\033[1m" + output + "\033[0m")
+        print("\033[93m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[93m" + "\033[1m" + output + "\033[0m")
+
+
+def print_red(output, add_separators=False):
+    """
+    Prints the output string in red color.
+    :param output: The string that we wish to print in a certain color.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[91m" + "\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[91m" + "\033[1m" + output + "\033[0m")
+        print("\033[91m" + "\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[91m" + "\033[1m" + output + "\033[0m")
+
+
+def print_bold(output, add_separators=False):
+    """
+    Prints the output string in bold font.
+    :param output: The string that we wish to print in bold font.
+    :param add_separators: If True, prints separators before and after the output.
+    """
+    if add_separators:
+        length = max(len(line) for line in output.split("\n")) + 1
+        print("\033[1m" + str(length * "-") + "\033[0m")
+        print("\033[1m" + output + "\033[0m")
+        print("\033[1m" + str(length * "-") + "\033[0m")
+    else:
+        print("\033[1m" + output + "\033[0m")
+
+
+def print_dictionary(dictionary, indent):
+    json.dumps(dictionary, indent=indent)
+
+
+# todo update documentation
+def console_log_update_tracker(iterations, tracker_dictionary, info_dump, keep_validation_iterations):
+    """
+    :param iterations: (int) Global step during training for a given model
+    :param tracker_dictionary: (dict) dictionary containing tracker information
+    :param info_dump: (int) number of iteration that were ran from previous information dump
+    """
+    # todo use left and right for the print
+    print("-------------------------------------------------------------")
+    print(f"We called the model {iterations} times")
+    print(
+        f"Moving Average of Training Loss is       : {np.round((tracker_dictionary['training_moving_loss'].item() / info_dump), 2)}")
+    if keep_validation_iterations:
+        print(
+            f"Moving Average of Validation Loss is     : {np.round((tracker_dictionary['validation_moving_loss'].item() / info_dump), 2)}")
+    print(
+        f"Moving Average of Training Accuracy is   : {np.round(100 * (tracker_dictionary['training_moving_accuracy'] / info_dump), 2)}%")
+    if keep_validation_iterations:
+        print(
+            f"Moving Average of Validation Accuracy is : {np.round(100 * (tracker_dictionary['validation_moving_accuracy'] / info_dump), 2)}%")
+    print("These %d Iterations took %d Seconds" % (info_dump, (time.time() - tracker_dictionary['start'])))
+    print("-------------------------------------------------------------")
+
+    return get_trackers()
+
+
+def get_trackers():
+    """
+    Function that gets elements that we would like to tack during training process
     :return:
     """
-    print("\033[94m" + "\033[1m" + output + "\033[0m")
+
+    tracker_dictionary = {
+        "start": time.time(),
+        "training_moving_accuracy": 0.0,
+        "validation_moving_accuracy": 0.0,
+        "test_moving_accuracy": 0.0,
+        "training_moving_loss": 0.0,
+        "validation_moving_loss": 0.0,
+        "test_moving_loss": 0.0}
+
+    return tracker_dictionary
 
 
-def print_green(output):
+from tqdm import tqdm
+
+
+def create_progress_bar(total, description):
     """
-    :param output: string that we wish to print in a certain colour
+    Creates and returns a tqdm progress bar.
+    :param total: (int) length of the progress bar
+    :param description: (str) description of the progress bar
     :return:
     """
-    print("\033[32m" + "\033[1m" + output + "\033[0m")
+    time.sleep(1)
+    return tqdm(total=total, desc=description, leave=True)
 
 
-def print_yellow(output):
-    """
-    :param output: string that we wish to print in a certain colour
-    :return:
-    """
-    print("\033[93m" + "\033[1m" + output + "\033[0m")
+# todo document function
+def compute_accuracy(predictions, labels):
+    # Initialize a counter for correct predictions
+    correct_predictions = 0
 
+    # Iterate over the list of tuples (predicted probabilities) and the list of true labels
+    for prediction, label in zip(predictions, labels):
 
-def print_red(output):
-    """
-    :param output: string that we wish to print in a certain colour
-    :return:
-    """
-    print("\033[91m" + "\033[1m" + output + "\033[0m")
+        # Determine the predicted label (index with the highest probability)
+        predicted_label = np.argmax(prediction)
 
+        # Compare the predicted label with the true label
+        if predicted_label == label:
+            correct_predictions += 1
 
-def print_bold(output):
-    """
-    :param output: string that we wish to print in bold font
-    :return:
-    """
-    print("\033[1m" + output + "\033[0m")
+    # Calculate accuracy as the ratio of correct predictions to the total number of predictions
+    accuracy = correct_predictions / len(labels)
+
+    return accuracy
 
 
 # Confusion Matrix Functions Still in progress
