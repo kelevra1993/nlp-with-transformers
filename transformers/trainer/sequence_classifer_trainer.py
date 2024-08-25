@@ -155,9 +155,9 @@ class SequenceClassifierTrainer:
         else:
             print_yellow("params.json already exists and does not need to be updated !!!\n")
 
-        # todo add input of model
         # Write the graph of the model
-        # training_writer.add_graph(self.model)
+        training_writer.add_graph(self.model, input_to_model=torch.randn(self.project_configuration.batch_size,
+                                                                         self.project_configuration.max_tokens).int())
 
         return training_writer, validation_writer
 
@@ -181,7 +181,6 @@ class SequenceClassifierTrainer:
                                                               Dataset.from_pandas(validation_dataframe),
                                                               Dataset.from_pandas(test_dataframe))
 
-        # Todo the shuffling part might need re-adjustment
         training_dataset = DataLoader(training_dataset, batch_size=self.project_configuration.batch_size,
                                       shuffle=False,
                                       collate_fn=self.collate_function)
@@ -307,9 +306,6 @@ class SequenceClassifierTrainer:
         for iteration in range(starting_iteration, self.project_configuration.num_iterations + 1):
 
             try:
-                # Todo Investigate if this does not ultimately just sets the optimizer to zero.
-                #  In this case, me might not have to store the optimiser in the model during training because it takes alot
-                #  of space, we should also evaluate if keeping optimiser in the weights does indeed help convergence.
                 # Re-Initialize Optimizer
                 self.optimizer.zero_grad()
 
@@ -320,9 +316,6 @@ class SequenceClassifierTrainer:
                     summary_writer=training_writer,
                     iteration=iteration)
 
-                # TODO Retest to see if the model does backpropagation correctly
-                #  normally the loss should be lower and depending on the learning rate
-                #  we should properly predict the output class for previous input elements
                 # Run the backpropagation and optimizer
                 training_loss.backward()
                 self.optimizer.step()
@@ -411,12 +404,9 @@ class SequenceClassifierTrainer:
             dataset=dataset,
             ignore_stop=False if set_type == "test" else True)
 
-        # todo just make sure that the softmax does not slow down training
         # Run the inputs through the neural network
         logits, softmax = self.model(input_ids)
 
-        # TODO TO BE TESTED
-        # TODO TO BE TESTED WHEN RUNNING VALIDATION, MAKE SURE THAT NO GRADIENTS ARE BEING COMPUTED.
         # Needs to be verified thouroughly
         loss = self.loss(logits, labels)
 
