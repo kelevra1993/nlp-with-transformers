@@ -63,7 +63,6 @@ def get_configuration_object(application_folder, config):
         "learning_rate": float(config["training"]["hyperparameters"]["learning_rate"]),
         "compute_model_size": config["training"]["alternative_modes"]["compute_model_size"],
         "view_input_sequences": config["training"]["alternative_modes"]["view_input_sequences"],
-        "tensorboard": config["training"]["visualisation"]["tensorboard"],
         "index_iteration": config["inference"]["index_iteration"],
         "error_dump": config["inference"]["error_dump"]
     }
