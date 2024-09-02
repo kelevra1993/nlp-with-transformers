@@ -1,11 +1,9 @@
 """
 The following script will contain the definition of a text classifier based on transformer
 """
-
+import math
 import torch
 import torch.nn.functional as F
-import numpy as np
-from transformers import AutoTokenizer, AutoConfig, AutoModel
 from torch import nn
 from math import sqrt
 
@@ -32,12 +30,115 @@ def scaled_dot_product_attention(query, key, value, mask):
     return torch.bmm(weights, value)
 
 
+class PositionalEncoding(nn.Module):
+    def __init__(self, device, embedding_dimension, max_length=512, n=10000):
+        """
+        Function that initializes our positional encoder matrix, based on users configuration inputs.
+        Based on the sine and cosine representation of position.
+        :param embedding_dimension: (int) dimension of the token embedding
+        :param max_length: (int) maximum length of the sequence
+        :param n: (int) n
+        """
+        # inherit from Module
+        super().__init__()
+
+        # create tensor of 0s
+        positional_encoder = torch.zeros(max_length, embedding_dimension)
+
+        # create position column
+        k = torch.arange(0, max_length).unsqueeze(1)
+
+        # compute divisor for positional encoding
+        div_term = torch.exp(torch.arange(0, embedding_dimension, 2) * -(math.log(n) / embedding_dimension))
+
+        # compute sine on even indices
+        positional_encoder[:, 0::2] = torch.sin(k * div_term)
+
+        # compute cosine on odd indices
+        positional_encoder[:, 1::2] = torch.cos(k * div_term)
+
+        # add dimension
+        self.positional_encoder = positional_encoder.unsqueeze(0)
+        self.positional_encoder = self.positional_encoder.to(torch.device(device))
+
+        # buffers are saved in state_dict but not trained by the optimizer
+        self.register_buffer("sine_cosine_positional_encoder_matrix", self.positional_encoder)
+
+    def forward(self, x):
+        """
+
+        :param x: embeddings (batch_size, seq_length, embedding_dimension)
+        :return: embeddings + positional encodings (batch_size, seq_length, embedding_dimension)
+        """
+
+        # add positional encoding to the embeddings
+        x += self.positional_encoder[:, : x.size(1)].requires_grad_(False)
+
+        return x
+
+
+class BinaryPositionalEncoding(nn.Module):
+    def __init__(self, device, embedding_dimension, max_length=512):
+        """
+        Function that initializes our positional encoder matrix, based on users configuration inputs.
+        Based on binary encoding representation
+        :param embedding_dimension: (int) dimension of the token embedding
+        :param max_length: (int) maximum length of the sequence
+        """
+        super().__init__()
+
+        # Create a tensor to hold the positional encodings
+        positional_encoder = torch.zeros(max_length, embedding_dimension)
+
+        for pos in range(1, max_length + 1):
+            # Convert the position to binary
+            binary_repr = [int(b) for b in bin(pos)[2:]]
+
+            # Add leading zeros to match the embedding dimension size
+            binary_repr = [0] * (embedding_dimension - len(binary_repr)) + binary_repr
+
+            # Fill the positional encoder with the binary representation
+            positional_encoder[pos - 1] = torch.tensor(binary_repr, dtype=torch.float32)
+
+        # Add an extra dimension and move to the specified device
+        self.positional_encoder = positional_encoder.unsqueeze(0).to(device)
+
+        # Register the positional encoding as a buffer, so it’s not a model parameter
+        self.register_buffer("binary_positional_encoder_matrix", self.positional_encoder)
+
+    def forward(self, x):
+        """
+        :param x: embeddings (batch_size, seq_length, embedding_dimension)
+        :return: embeddings + positional encodings (batch_size, seq_length, embedding_dimension)
+        """
+
+        # Add the positional encoding to the input embeddings
+        x += self.positional_encoder[:, :x.size(1)].requires_grad_(False)
+
+        return x
+
+
 # Creation of the initial token embeddor and positional embeddor.
 class Embeddings(nn.Module):
     def __init__(self, config):
         super().__init__()
         self.token_embeddings = nn.Embedding(config.vocabulary_size, config.embedding_dimension)
-        self.positional_embeddings = nn.Embedding(config.max_tokens, config.embedding_dimension)
+
+        if config.positional_encoder == "sine-cosine":
+            self.positional_embeddings = PositionalEncoding(
+                config.device,
+                config.embedding_dimension,
+                max_length=config.max_tokens,
+                n=config.parameters)
+        elif config.positional_encoder == "binary":
+            self.positional_embeddings = BinaryPositionalEncoding(
+                config.device,
+                config.embedding_dimension,
+                max_length=config.max_tokens
+            )
+        else:
+            self.positional_embeddings = None
+
         self.layer_normalization = nn.LayerNorm(config.embedding_dimension, eps=1e-12)
         self.dropout = nn.Dropout()
 
@@ -49,14 +150,14 @@ class Embeddings(nn.Module):
         """
         # Create position IDs for input sequence
         sequence_length = input_ids.size(1)
-        position_ids = torch.arange(sequence_length, dtype=torch.long).unsqueeze(0)
 
-        # Create Token and Position Embeddings
-        token_embeddings = self.token_embeddings(input_ids)
-        position_embeddings = self.positional_embeddings(position_ids)
+        # Create Token Embedding
+        embeddings = self.token_embeddings(input_ids)
 
-        # Combine token and position embeddings
-        embeddings = token_embeddings + position_embeddings
+        if self.positional_embeddings:
+            # Combine token and position embeddings
+            embeddings = self.positional_embeddings(embeddings)
+
         embeddings = self.layer_normalization(embeddings)
         embeddings = self.dropout(embeddings)
 
@@ -81,6 +182,7 @@ class AttentionHead(nn.Module):
         :param hidden_state: input matrix, either from the token and position embedding of from a transfomer block
         :return:
         """
+        # Todo mask will eventually need to be tested
         attention_outputs = scaled_dot_product_attention(query=self.query_matrix(hidden_state),
                                                          key=self.key_matrix(hidden_state),
                                                          value=self.value_matrix(hidden_state),
@@ -104,8 +206,7 @@ class MultiHeadAttention(nn.Module):
         :param hidden_state: input matrix, either from the token and position embedding of from a transfomer block
         :return:
         """
-        output = torch.cat([attention_head(hidden_state) for attention_head in self.attention_heads],
-                           axis=-1)
+        output = torch.cat([attention_head(hidden_state) for attention_head in self.attention_heads], axis=-1)
         return self.linear_output_matrix(output)
 
 
@@ -116,7 +217,7 @@ class FeedForward(nn.Module):
         expanded_dimension_size = int(config.reasoning_factor * config.embedding_dimension)
         self.first_linear_matrix = nn.Linear(config.embedding_dimension, expanded_dimension_size)
         self.second_linear_matrix = nn.Linear(expanded_dimension_size, config.embedding_dimension)
-        self.gelu = nn.GELU()
+        self.activation = nn.GELU()
         self.dropout = nn.Dropout(config.hidden_dropout_probability)
 
     def forward(self, hidden_state):
@@ -127,7 +228,7 @@ class FeedForward(nn.Module):
         """
         hidden_state = self.first_linear_matrix(hidden_state)
         # Introduce non-linearity between matrix multiplications
-        hidden_state = self.gelu(hidden_state)
+        hidden_state = self.activation(hidden_state)
 
         hidden_state = self.second_linear_matrix(hidden_state)
         hidden_state = self.dropout(hidden_state)
@@ -207,7 +308,7 @@ class TransformerForSequenceClassification(nn.Module):
 
             for size in config.fully_connected_sizes:
                 self.fully_connected_layers.append(nn.Linear(input_size, size))
-                self.fully_connected_layers.append(nn.GELU())
+                self.fully_connected_layers.append(nn.ReLU())
                 input_size = size
 
             self.fully_connected_block = nn.Sequential(*self.fully_connected_layers)

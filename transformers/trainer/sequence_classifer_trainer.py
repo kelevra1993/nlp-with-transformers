@@ -92,7 +92,8 @@ class SequenceClassifierTrainer:
         params += str(self.project_configuration.max_tokens) + "-"
 
         # Dealing with the positional encoder first
-        params += self.project_configuration.positional_encoder.upper() + "-"
+        positional_encoder = self.project_configuration.positional_encoder
+        params += f"{positional_encoder.upper() if positional_encoder else ''}-"
 
         if self.project_configuration.positional_encoder == "blstm":
             blstm_parameters = self.project_configuration.positional_encoder_parameters["blstm"]
@@ -363,7 +364,12 @@ class SequenceClassifierTrainer:
                     time.sleep(1)
 
                 self.save_model(iteration=iteration)
+                exit()
 
+            except:
+                print_red(f"Something Went Wrong At Iteration {iteration}")
+                self.save_model(iteration=iteration)
+                raise
                 exit()
 
     def manage_progress_bar(self, progress_bar, iteration=None):

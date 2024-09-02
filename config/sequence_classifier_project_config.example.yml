@@ -40,21 +40,24 @@ model:
 
     # Choice of the positonal encoder to use
     positional_encoder:
-        type: "positional" # "cosine-sine" or "blstm" or "positional"
+        type: "binary" # ["sine-cosine","binary","blstm","binary","null"]
 
         parameters:
             # TODO To Be Implemented
             blstm:
                 hidden_units: 50
                 layers: 2
+            # todo implement sine-cosine parameter (especially n)
+            sine_cosine:
+                param: 0
 
     vocabulary_size: 30522
     # Transformer Architecture Parameters
     transformer:
         # Number of (Multi-Head-Attention + Feed Forward Layers) Equivalent of number of ConvBlocks in Computer Vision
-        num_hidden_layers: 6
+        num_hidden_layers: 4
         # Size of the embedding (Will Be Kept Constant Throughout For The First Iterations Of The Library)
-        embedding_dimension: 768
+        embedding_dimension: 384
         # Embedding Dimension Size Of A Single Head (defines the stratification of embedding dimension)
         # For instance the Number Of Heads is equal to embedding_dimension//head_dimension
         head_dimension: 64
@@ -102,7 +105,7 @@ training:
         # Size Of The Batch
         batch_size: 64
         # Number of iterations before output to Terminal
-        info_dump: 100
+        info_dump: 1000
         # Todo To be confirmed for the speed improvement : Also has to be implemented
         # Choice to keep batch-size validation iterations at every time step
         # If you deactivate this step, training will be 2x faster ( but no validation inference at every step )
@@ -121,7 +124,7 @@ training:
         # Choice to compute final model size
         compute_model_size: True
         # Choice to view what is being fed to the neural network
-        view_input_images: True
+        view_input_sequences: True
 
 
     # TODO Make Sure That This Is Coded
