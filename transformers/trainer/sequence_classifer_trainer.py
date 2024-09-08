@@ -22,7 +22,7 @@ module_folder = dirname(dirname(__file__))
 sys.path.append(module_folder)
 
 # Here we get the sequence classifier model that was coded in the model.py file
-from models.model import TransformerForSequenceClassification
+from models.model import ModelForSequenceClassification
 
 from utils import (make_dir, print_green, safe_dump, print_yellow, print_red, print_dictionary, get_trackers,
                    create_progress_bar, print_blue, print_bold, plot_and_save_confusion_matrix, compute_accuracy,
@@ -57,7 +57,7 @@ class SequenceClassifierTrainer:
         self.device = self.get_device()
 
         # Get The Classification Model
-        self.model = TransformerForSequenceClassification(config=self.project_configuration)
+        self.model = ModelForSequenceClassification(config=self.project_configuration)
 
         # Add the model to the device
         self.model.to(self.device)
@@ -103,20 +103,26 @@ class SequenceClassifierTrainer:
         # Dealing with the vocabulary size
         params += "VOC-" + str(self.project_configuration.vocabulary_size) + "-"
 
-        # Dealing with the transformer blocks
-        params += "TRANS-BLOCKS-" + str(self.project_configuration.num_hidden_layers) + "-"  # hidden layers
-        params += "EMB-" + str(self.project_configuration.embedding_dimension) + "-"
-        params += "SINGLE-HEAD-" + str(self.project_configuration.head_dimension) + "-"
-        params += "REAS-" + str(self.project_configuration.reasoning_factor) + "-"
+        if self.project_configuration.architecture.upper() == "TRANSFORMER":
+            # Dealing with the transformer blocks
+            params += "TRANS-BLOCKS-" + str(self.project_configuration.num_hidden_layers) + "-"  # hidden layers
+            params += "EMB-" + str(self.project_configuration.embedding_dimension) + "-"
+            params += "SINGLE-HEAD-" + str(self.project_configuration.head_dimension) + "-"
+            params += "REAS-" + str(self.project_configuration.reasoning_factor) + "-"
 
-        if self.project_configuration.use_aggregator:
-            agg_parameters = self.project_configuration.aggregator_parameters
-            if self.project_configuration.aggregator_type == "blstm":
-                params += "AGG-BLSTM-" + str(agg_parameters["blstm"]["hidden_units"]) + "-" + str(
-                    agg_parameters["blstm"][
-                        "layers"]) + "-"
-            if self.project_configuration.aggregator_type == "squeeze-and-excite":
-                params += "AGG-SE-" + str(agg_parameters["squeeze-and-excite"]["number_of_matrices"]) + "-"
+            # TODO To be moved
+            if self.project_configuration.use_aggregator:
+                agg_parameters = self.project_configuration.aggregator_parameters
+                if self.project_configuration.aggregator_type == "blstm":
+                    params += "AGG-BLSTM-" + str(agg_parameters["blstm"]["hidden_units"]) + "-" + str(
+                        agg_parameters["blstm"][
+                            "layers"]) + "-"
+                if self.project_configuration.aggregator_type == "squeeze-and-excite":
+                    params += "AGG-SE-" + str(agg_parameters["squeeze-and-excite"]["number_of_matrices"]) + "-"
+
+        if self.project_configuration.architecture.upper() == "LSTM":
+            architecture_name = "Bi-LSTM-" if self.project_configuration.bidirectional else "LSTM-"
+            params += architecture_name + f"{self.project_configuration.num_lstm_layers}({str(self.project_configuration.embedding_dimension)})-"
 
         raw_parameters = params + "FC-" + '_'.join(map(str, self.project_configuration.fully_connected_sizes))
 

@@ -52,12 +52,20 @@ model:
                 param: 0
 
     vocabulary_size: 30522
+
+    # Size of the embedding (Will Be Kept Constant Throughout For The First Iterations Of The Library)
+    # Set for both Transformers and LSTM
+    # TODO We have to make sure that this is always pair
+    embedding_dimension: 384
+
+    # Defines the architecture to use
+    architecture: "lstm" # Either lstm or transformer
+
     # Transformer Architecture Parameters
     transformer:
         # Number of (Multi-Head-Attention + Feed Forward Layers) Equivalent of number of ConvBlocks in Computer Vision
-        num_hidden_layers: 4
-        # Size of the embedding (Will Be Kept Constant Throughout For The First Iterations Of The Library)
-        embedding_dimension: 384
+        num_hidden_layers: 2
+
         # Embedding Dimension Size Of A Single Head (defines the stratification of embedding dimension)
         # For instance the Number Of Heads is equal to embedding_dimension//head_dimension
         head_dimension: 64
@@ -70,6 +78,14 @@ model:
         # TODO Evaluate the relevance of this and later see if we have to keep it or just impose it without choice
         # Dropout Probability : Fraction of nodes / neurones to drop during training.
         hidden_dropout_probability: 0.1
+
+    lstm:
+        # Number LSTM Layers
+        num_lstm_layers: 1
+
+        # Choice For Bi-directionality
+        bidirectional: True
+
 
     # Choice To Use Aggregators such as BLSTM, Max, Mean, Squeeze-And-Excite
     use_aggregator:

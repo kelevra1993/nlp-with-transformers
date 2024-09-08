@@ -148,8 +148,6 @@ class Embeddings(nn.Module):
         :param input_ids: input ids of the tokenized data.
         :return:
         """
-        # Create position IDs for input sequence
-        sequence_length = input_ids.size(1)
 
         # Create Token Embedding
         embeddings = self.token_embeddings(input_ids)
@@ -270,12 +268,34 @@ class TransformerEncoderLayer(nn.Module):
         return output
 
 
-# Put everything together to create the TransformerEncoder
-class TransformerEncoder(nn.Module):
+# Put everything together to create the ModelEncoder
+class ModelEncoder(nn.Module):
     def __init__(self, config):
         super().__init__()
+        self.architecture = config.architecture.upper()
         self.embeddings = Embeddings(config)
-        self.layers = nn.ModuleList([TransformerEncoderLayer(config) for _ in range(config.num_hidden_layers)])
+        if self.architecture == "TRANSFORMER":
+            self.layers = nn.ModuleList([TransformerEncoderLayer(config) for _ in range(config.num_hidden_layers)])
+        if self.architecture == "LSTM":
+            self.layers = nn.ModuleList([LSTMEncoder(config)])
+
+        self.output_to_consider = self.get_output_to_consider(self)
+
+    @staticmethod
+    def get_output_to_consider(self):
+        # TODO Evaluate taking the same output for both the Transformer and the LSTM.
+        #  For the Transformer normally it shouldn't change anything if we take the first or the last element
+        #  It seems arbitrary for the Transformers, but it might also be the case for the LSTM.
+        """
+        Function that sets the output to consider, if we are dealing with transformers we take the first element,
+        if we are dealing with LSTMs, we take the last element.
+        :param self:
+        :return:
+        """
+        if self.architecture == "TRANSFORMER":
+            return 0
+        if self.architecture == "LSTM":
+            return -1
 
     def forward(self, x):
         """
@@ -289,14 +309,16 @@ class TransformerEncoder(nn.Module):
         for layer in self.layers:
             x = layer(x)
 
-        return x
+        # Keep the hidden state of the first token for the Transformer
+        # Keep the hidden state of the last output for the LSTM
+        return x[:, self.output_to_consider, :]
 
 
-# Create A Classifier, based on the TransformerEncoder
-class TransformerForSequenceClassification(nn.Module):
+# Create A Classifier, based either on Transformers or Bi-LSTM encoder
+class ModelForSequenceClassification(nn.Module):
     def __init__(self, config):
         super().__init__()
-        self.transformer_encoder = TransformerEncoder(config)
+        self.model_encoder = ModelEncoder(config)
         self.dropout = nn.Dropout(config.hidden_dropout_probability)
 
         self.fully_connected_block = None
@@ -317,12 +339,12 @@ class TransformerForSequenceClassification(nn.Module):
 
     def forward(self, x):
         """
-        Function that passes inputs to the transformer, keeps the first element of the transformer
+        Function that passes inputs to the encoder model
         applies dropout on it and then classifies it.
         :param x: input token ids from a tokenizer
         :return:
         """
-        x = self.transformer_encoder(x)[:, 0, :]  # Keep the hidden state of just the first token
+        x = self.model_encoder(x)
         x = self.dropout(x)
 
         if self.fully_connected_block:
@@ -331,3 +353,39 @@ class TransformerForSequenceClassification(nn.Module):
         x = self.classifier(x)
 
         return x, F.softmax(x, dim=-1)
+
+
+class LSTMEncoder(nn.Module):
+    def __init__(self, config):
+        super(LSTMEncoder, self).__init__()
+        self.device = config.device
+        self.input_size = config.embedding_dimension
+        self.bidirectional = config.bidirectional
+        self.hidden_size = config.embedding_dimension // 2 if self.bidirectional else config.embedding_dimension
+        self.num_layers = config.num_lstm_layers
+        self.number_state_layers = self.num_layers * 2 if self.bidirectional else self.num_layers
+
+        # Configuration of the LSTM
+        self.lstm = nn.LSTM(input_size=self.input_size,
+                            hidden_size=self.hidden_size,
+                            num_layers=self.num_layers,
+                            batch_first=True,
+                            bidirectional=self.bidirectional)
+
+    def forward(self, x):
+        """
+        Forward function for the Long Short Term Memory Layers
+        Input is of size batch_size,sequence_length,embedding_dimension
+        Output will be of size batch_size,sequence_length,embedding_dimension
+        Output dimension has been standardised, in order to manage the potential
+        bidirectionality of the LSTM. The hidden size is divided by 2 when bidirectonality is activated
+        :param x: input from the embedding + positional encoding layer
+        :return:
+        """
+
+        hidden_state_0 = torch.zeros(self.number_state_layers, x.size(0), self.hidden_size).to(self.device)
+        cell_state_0 = torch.zeros(self.number_state_layers, x.size(0), self.hidden_size).to(self.device)
+
+        output, _ = self.lstm(x, (hidden_state_0, cell_state_0))
+
+        return output
