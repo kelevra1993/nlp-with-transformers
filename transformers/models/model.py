@@ -121,6 +121,13 @@ class BinaryPositionalEncoding(nn.Module):
 # Creation of the initial token embeddor and positional embeddor.
 class Embeddings(nn.Module):
     def __init__(self, config):
+        """
+        Initializes the Embeddings class.
+
+        :param config: A configuration object with parameters like vocabulary_size, embedding_dimension, etc.
+        """
+
+
         super().__init__()
         self.token_embeddings = nn.Embedding(config.vocabulary_size, config.embedding_dimension)
 
@@ -165,6 +172,13 @@ class Embeddings(nn.Module):
 # Implementation of the Attention Head
 class AttentionHead(nn.Module):
     def __init__(self, config):
+        """
+        Initializes the AttentionHead class.
+
+        :param config: A configuration object with parameters like embedding_dimension, head_dimension, etc.
+        """
+
+
         super().__init__()
         self.query_matrix = nn.Linear(config.embedding_dimension, config.head_dimension)
         self.key_matrix = nn.Linear(config.embedding_dimension, config.head_dimension)

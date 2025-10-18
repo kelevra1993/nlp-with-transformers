@@ -37,6 +37,12 @@ class SequenceClassifierTrainer:
     """
 
     def __init__(self, **kwargs):
+        """
+        Initializes the SequenceClassifierTrainer class.
+
+        :param kwargs: Keyword arguments, expected to contain 'project_configuration'.
+        """
+
 
         # Get the project configuration
         self.project_configuration = kwargs.get("project_configuration")
@@ -291,6 +297,13 @@ class SequenceClassifierTrainer:
 
     @staticmethod
     def collate_function(batch):
+        """
+        Collates a batch of data into a dictionary.
+
+        :param batch: A list of dictionaries.
+        :return: A dictionary with keys corresponding to the keys of the input dictionaries.
+        """
+
         return {key: [d[key] for d in batch] for key in batch[0]}
 
     def train(self):
@@ -777,17 +790,3 @@ class SequenceClassifierTrainer:
                 f.write(line)
 
 
-from utils import load_configuration_variables, print_red, print_yellow
-
-# Load configuration object
-project_configuration_object = load_configuration_variables(
-    application_folder=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    experiment_name="sequence_classifier_project_config.example.yml")
-
-# Load the trainer
-trainer = SequenceClassifierTrainer(project_configuration=project_configuration_object)
-
-# Run training
-with torch.device(trainer.device):
-    # Train the model
-    trainer.train()
