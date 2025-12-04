@@ -248,6 +248,10 @@ class SequenceClassifierTrainer:
             if torch.backends.mps.is_built() and torch.backends.mps.is_available():
                 device = torch.device("mps")
                 self.device_message_success("mps")
+            else:
+                device = None
+                print_red(f"Could Not Find Device -> {self.project_configuration.device}")
+                print_yellow(f"Choose A Device Among 'cpu', 'gpu' or 'mps'")
         else:
             device = None
             print_red(f"Could Not Find Device -> {self.project_configuration.device}")
